@@ -157,7 +157,7 @@ class BertModelShard(ModuleShard):
         state_dict = model.state_dict()
         weights = {}
         for key, val in state_dict.items():
-            weights[key] = val
+            weights[key] = val.detach().cpu().numpy()
         np.savez(model_file, **weights)
 
 
@@ -215,5 +215,5 @@ class BertShardForSequenceClassification(ModuleShard):
         state_dict = model.state_dict()
         weights = {}
         for key, val in state_dict.items():
-            weights[key] = val
+            weights[key] = val.detach().cpu().numpy()
         np.savez(model_file, **weights)
