@@ -42,11 +42,7 @@ class BertLayerShard(ModuleShard):
     def forward(self, data: TransformerShardData) -> TransformerShardData:
         """Compute layer shard."""
         if self.has_layer(0):
-            data = (self.self_attention(
-                data,
-                attention_mask=None,
-                past_key_values=None
-            )[0], data)
+            data = (self.self_attention(data, attention_mask=None, past_key_values=None)[0], data)
         if self.has_layer(1):
             data = self.self_output(data[0], data[1])
         if self.has_layer(2):
