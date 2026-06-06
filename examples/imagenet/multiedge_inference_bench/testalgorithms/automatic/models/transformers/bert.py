@@ -143,7 +143,7 @@ class BertModelShard(ModuleShard):
     def forward(self, data: TransformerShardData) -> TransformerShardData:
         """Compute shard layers."""
         if self.shard_config.is_first:
-            data = self.embeddings(data)
+            data = self.embeddings(input_ids=data)
         for layer in self.layers:
             data = layer(data)
         if self.shard_config.is_last:
