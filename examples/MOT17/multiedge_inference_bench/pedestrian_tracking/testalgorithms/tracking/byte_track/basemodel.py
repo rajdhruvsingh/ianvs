@@ -85,10 +85,11 @@ class BaseModel:
         self.args.experiment_name = self.exp.exp_name
 
         num_gpu = torch.cuda.device_count()
-        assert num_gpu >= 1, (
-            f"No CUDA-capable GPU detected (torch.cuda.device_count() = {num_gpu}). "
-            "The ByteTrack tracking job requires at least one CUDA GPU."
-        )
+        if num_gpu < 1:
+            raise RuntimeError(
+                f"No CUDA-capable GPU detected (torch.cuda.device_count() = {num_gpu}). "
+                "The ByteTrack tracking job requires at least one CUDA GPU."
+            )
         self.is_distributed = num_gpu > 1
         # set environment variables for distributed training
         cudnn.benchmark = True
