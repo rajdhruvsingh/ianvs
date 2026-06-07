@@ -98,7 +98,7 @@ conda activate ianvs-experiment
 > **WARNING: Do NOT run `pip install sedna`**  
 > Running `pip install sedna` silently installs a completely unrelated unit-conversion library from PyPI — not the KubeEdge Sedna package. Use the bundled wheel file as shown below.
 
-pip install resources/third_party/sedna-0.6.0.1-py3-none-any.whl
+pip install examples/resources/third_party/sedna-0.6.0.1-py3-none-any.whl
 
 # Install dependencies for Ianvs Core.
 pip install -r requirements.txt
