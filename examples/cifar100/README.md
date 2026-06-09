@@ -28,6 +28,9 @@ mkdir -p data/cifar100
 # Download CIFAR-100 and generate index files
 python examples/cifar100/utils.py
 ```
+> ⚠️ **Note:** `utils.py` currently contains hardcoded absolute paths.
+> Before running it, open `examples/cifar100/utils.py` and update
+> the paths to match your local environment.
 
 ## Algorithms
 
@@ -63,10 +66,8 @@ There is also a standard federated learning baseline:
 ## Quick Start
 
 **Step 1 — Prepare dataset:**
-```bash
-mkdir -p data/cifar100
-# place cifar100_train.txt and cifar100_test.txt under data/cifar100/
-```
+Follow the [Dataset](#dataset) section above to run `utils.py`
+and generate the required training and testing index files.
 
 **Step 2 — Prepare initial model:**
 ```bash
@@ -75,6 +76,10 @@ mkdir -p init_model
 ```
 
 **Step 3 — Run benchmarking (FedAvg example):**
+> ⚠️ **Note:** Before running, update the hardcoded `workspace` path
+> in `examples/cifar100/fci_ssl/fedavg/benchmarkingjob.yaml` to your
+> local environment path.
+
 ```bash
 ianvs -f examples/cifar100/fci_ssl/fedavg/benchmarkingjob.yaml
 ```
@@ -100,6 +105,8 @@ Key hyperparameters in `algorithm/algorithm.yaml`:
 | `client_number` | 1 | Number of federated clients |
 
 ## Directory Structure
+
+```
 cifar100/
 ├── fci_ssl/                          # Federated Class-Incremental SSL
 │   ├── fedavg/                       # FedAvg algorithm
@@ -111,6 +118,7 @@ cifar100/
 ├── federated_learning/
 │   └── fedavg/                       # Standard FedAvg baseline
 └── utils.py                          # Dataset utilities
+```
 
 ## Related Issues
 
