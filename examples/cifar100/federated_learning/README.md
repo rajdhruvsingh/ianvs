@@ -44,7 +44,6 @@ clients with IID data partitioning.
 | `epochs` | 10 | Local training epochs per round |
 | `train_ratio` | 1.0 | Ratio of data used for training |
 | `data_partition` | iid | Data distribution (iid/non-iid) |
-| `incremental_rounds` | 10 | Number of federated rounds |
 | `round` | 200 | Total training rounds |
 
 ## Prerequisites
@@ -66,7 +65,7 @@ mkdir -p data/cifar100
 **Step 2 — Prepare initial model:**
 ```bash
 mkdir -p init_model
-# place restnet.pb under init_model/
+# place resnet.pb under init_model/
 # update initial_model_url in algorithm/algorithm.yaml
 ```
 
