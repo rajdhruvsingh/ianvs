@@ -57,7 +57,21 @@ class TestCaseController:
         max_workers : int, optional
             Maximum number of parallel workers. Defaults to number of test cases.
         """
+        if isinstance(parallel, str):
+            parallel = parallel.lower() in ("true", "1", "yes")
+
         if parallel:
+            if max_workers is not None:
+                try:
+                    max_workers = int(max_workers)
+                except ValueError:
+                    raise ValueError(
+                f"max_workers must be an integer, got {max_workers}"
+            )
+            if max_workers <= 0:
+                raise ValueError(
+                    f"max_workers must be greater than 0, got {max_workers}"
+                )
             return self._run_testcases_parallel(workspace, max_workers)
         return self._run_testcases_sequential(workspace)
 
@@ -82,29 +96,33 @@ class TestCaseController:
 
         Uses threads rather than processes to avoid pickling issues
         with ML model objects loaded during paradigm execution.
-        """
+        Each test case receives a deep copy of test_env to prevent
+        race conditions from shared state modifications.
+        """ 
+        import copy
         succeed_results = {}
         succeed_testcases = []
         failed_testcases = []
 
-        workers = max_workers or max(len(self.test_cases), 1)
+        # deep copy test cases to avoid shared test_env/dataset
+        # state mutations between parallel threads
+        parallel_testcases = [copy.deepcopy(tc) for tc in self.test_cases]
 
-
-        with ThreadPoolExecutor(max_workers=workers) as executor:
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
             future_to_testcase = {
-                executor.submit(testcase.run, workspace): testcase
-                for testcase in self.test_cases
-            }
+            executor.submit(testcase.run, workspace): testcase
+            for testcase in parallel_testcases
+        }
 
-            for future in as_completed(future_to_testcase):
-                testcase = future_to_testcase[future]
-                try:
-                    res = future.result()
-                    time = utils.get_local_time()
-                    succeed_results[testcase.id] = (res, time)
-                    succeed_testcases.append(testcase)
-                except Exception as err:
-                    failed_testcases.append((testcase, err))
+        for future in as_completed(future_to_testcase):
+            testcase = future_to_testcase[future]
+            try:
+                res = future.result()
+                time = utils.get_local_time()
+                succeed_results[testcase.id] = (res, time)
+                succeed_testcases.append(testcase)
+            except Exception as err:
+                failed_testcases.append((testcase, err))
 
         if failed_testcases:
             error_msgs = [
@@ -112,8 +130,8 @@ class TestCaseController:
                 for tc, err in failed_testcases
             ]
             raise RuntimeError(
-                f"{len(failed_testcases)} testcase(s) failed:\n" +
-                "\n".join(error_msgs)
+            f"{len(failed_testcases)} testcase(s) failed:\n" +
+            "\n".join(error_msgs)
             )
 
         return succeed_testcases, succeed_results
