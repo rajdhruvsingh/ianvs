@@ -20,6 +20,7 @@ from core.common import utils
 from core.common.constant import TestObjectType
 from core.testcasecontroller.algorithm import Algorithm
 from core.testcasecontroller.testcase import TestCase
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 
 class TestCaseController:
@@ -43,20 +44,77 @@ class TestCaseController:
             for algorithm in algorithms:
                 self.test_cases.append(TestCase(test_env, algorithm))
 
-    def run_testcases(self, workspace):
+    def run_testcases(self, workspace, parallel=False, max_workers=None):
         """
         Run all test cases.
+
+        Parameters
+        ----------
+        workspace : str
+            The workspace directory for test case outputs.
+        parallel : bool
+            Whether to run test cases in parallel. Default is False.
+        max_workers : int, optional
+            Maximum number of parallel workers. Defaults to number of test cases.
         """
+        if parallel:
+            return self._run_testcases_parallel(workspace, max_workers)
+        return self._run_testcases_sequential(workspace)
+
+    def _run_testcases_sequential(self, workspace):
+        """Run test cases sequentially — original behavior."""
         succeed_results = {}
         succeed_testcases = []
         for testcase in self.test_cases:
             try:
                 res, time = (testcase.run(workspace), utils.get_local_time())
             except Exception as err:
-                raise RuntimeError(f"testcase(id={testcase.id}) runs failed, error: {err}") from err
-
+                raise RuntimeError(
+                    f"testcase(id={testcase.id}) runs failed, error: {err}"
+                ) from err
             succeed_results[testcase.id] = (res, time)
             succeed_testcases.append(testcase)
+        return succeed_testcases, succeed_results
+
+    def _run_testcases_parallel(self, workspace, max_workers=None):
+        """
+        Run test cases in parallel using ThreadPoolExecutor.
+
+        Uses threads rather than processes to avoid pickling issues
+        with ML model objects loaded during paradigm execution.
+        """
+        succeed_results = {}
+        succeed_testcases = []
+        failed_testcases = []
+
+        workers = max_workers or max(len(self.test_cases), 1)
+
+
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            future_to_testcase = {
+                executor.submit(testcase.run, workspace): testcase
+                for testcase in self.test_cases
+            }
+
+            for future in as_completed(future_to_testcase):
+                testcase = future_to_testcase[future]
+                try:
+                    res = future.result()
+                    time = utils.get_local_time()
+                    succeed_results[testcase.id] = (res, time)
+                    succeed_testcases.append(testcase)
+                except Exception as err:
+                    failed_testcases.append((testcase, err))
+
+        if failed_testcases:
+            error_msgs = [
+                f"testcase(id={tc.id}) runs failed, error: {err}"
+                for tc, err in failed_testcases
+            ]
+            raise RuntimeError(
+                f"{len(failed_testcases)} testcase(s) failed:\n" +
+                "\n".join(error_msgs)
+            )
 
         return succeed_testcases, succeed_results
 
