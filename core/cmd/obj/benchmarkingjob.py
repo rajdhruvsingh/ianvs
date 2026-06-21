@@ -47,8 +47,8 @@ class BenchmarkingJob:
         self.rank = None
         self.test_env = None
         self.simulation = None
-        self.parallel: bool = False
-        self.max_workers: int|None = None
+        self.parallel = False
+        self.max_workers = None
         self.testcase_controller = TestCaseController()
         self._parse_config(config)
 
