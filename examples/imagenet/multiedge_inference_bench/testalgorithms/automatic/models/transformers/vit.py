@@ -57,7 +57,10 @@ class ViTLayerShard(ModuleShard):
         """Compute layer shard."""
         if self.has_layer(0):
             data_norm = self.layernorm_before(data)
-            data = (self.self_attention(data_norm)[0], data)
+            data = (self.self_attention(
+                data_norm,
+                attention_mask=None,
+            )[0], data)
         if self.has_layer(1):
             skip = data[1]
             data = self.self_output(data[0], skip)

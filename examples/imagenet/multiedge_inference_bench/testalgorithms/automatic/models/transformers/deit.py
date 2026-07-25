@@ -1,6 +1,7 @@
 """DeiT Transformers."""
 from collections.abc import Mapping
 import logging
+import warnings
 import math
 from typing import Optional, Union
 import numpy as np
@@ -56,7 +57,10 @@ class DeiTLayerShard(ModuleShard):
         """Compute layer shard."""
         if self.has_layer(0):
             data_norm = self.layernorm_before(data)
-            data = (self.self_attention(data_norm)[0], data)
+            data = (self.self_attention(
+                data_norm,
+                attention_mask=None,
+            )[0], data)
         if self.has_layer(1):
             skip = data[1]
             data = self.self_output(data[0], skip)
@@ -120,8 +124,10 @@ class DeiTModelShard(ModuleShard):
     def _load_weights_first(self, weights):
         self.embeddings.cls_token.copy_(torch.from_numpy(weights["cls_token"]))
         self.embeddings.position_embeddings.copy_(torch.from_numpy((weights["pos_embed"])))
-        self.embeddings.patch_embeddings.projection.weight.copy_(torch.from_numpy(weights["patch_embed.proj.weight"]))
-        self.embeddings.patch_embeddings.projection.bias.copy_(torch.from_numpy(weights["patch_embed.proj.bias"]))
+        self.embeddings.patch_embeddings.projection.weight.copy_(
+            torch.from_numpy(weights["patch_embed.proj.weight"]))
+        self.embeddings.patch_embeddings.projection.bias.copy_(
+            torch.from_numpy(weights["patch_embed.proj.bias"]))
 
     @torch.no_grad()
     def _load_weights_last(self, weights):
@@ -137,19 +143,24 @@ class DeiTModelShard(ModuleShard):
             layer.layernorm_before.bias.copy_(torch.from_numpy(weights[root + "norm1.bias"]))
             qkv_weight = weights[root + "attn.qkv.weight"]
             layer.self_attention.query.weight.copy_(torch.from_numpy(qkv_weight[0:embed_dim,:]))
-            layer.self_attention.key.weight.copy_(torch.from_numpy(qkv_weight[embed_dim:embed_dim*2,:]))
-            layer.self_attention.value.weight.copy_(torch.from_numpy(qkv_weight[embed_dim*2:embed_dim*3,:]))
+            layer.self_attention.key.weight.copy_(
+                torch.from_numpy(qkv_weight[embed_dim:embed_dim*2,:]))
+            layer.self_attention.value.weight.copy_(
+                torch.from_numpy(qkv_weight[embed_dim*2:embed_dim*3,:]))
             qkv_bias = weights[root + "attn.qkv.bias"]
             layer.self_attention.query.bias.copy_(torch.from_numpy(qkv_bias[0:embed_dim,]))
             layer.self_attention.key.bias.copy_(torch.from_numpy(qkv_bias[embed_dim:embed_dim*2]))
-            layer.self_attention.value.bias.copy_(torch.from_numpy(qkv_bias[embed_dim*2:embed_dim*3]))
+            layer.self_attention.value.bias.copy_(
+                torch.from_numpy(qkv_bias[embed_dim*2:embed_dim*3]))
         if layer.has_layer(1):
-            layer.self_output.dense.weight.copy_(torch.from_numpy(weights[root + "attn.proj.weight"]))
+            layer.self_output.dense.weight.copy_(
+                torch.from_numpy(weights[root + "attn.proj.weight"]))
             layer.self_output.dense.bias.copy_(torch.from_numpy(weights[root + "attn.proj.bias"]))
         if layer.has_layer(2):
             layer.layernorm_after.weight.copy_(torch.from_numpy(weights[root + "norm2.weight"]))
             layer.layernorm_after.bias.copy_(torch.from_numpy(weights[root + "norm2.bias"]))
-            layer.intermediate.dense.weight.copy_(torch.from_numpy(weights[root + "mlp.fc1.weight"]))
+            layer.intermediate.dense.weight.copy_(
+                torch.from_numpy(weights[root + "mlp.fc1.weight"]))
             layer.intermediate.dense.bias.copy_(torch.from_numpy(weights[root + "mlp.fc1.bias"]))
         if layer.has_layer(3):
             layer.output.dense.weight.copy_(torch.from_numpy(weights[root + "mlp.fc2.weight"]))
@@ -178,7 +189,7 @@ class DeiTModelShard(ModuleShard):
                              hub_model_name)
             else:
                 hub_model_name = model_name
-        import warnings
+
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", FutureWarning)
             model = torch.hub.load(hub_repo, hub_model_name, pretrained=True)
@@ -212,7 +223,10 @@ class DeiTShardForImageClassification(ModuleShard):
 
         if self.shard_config.is_last:
             logger.debug(">>>> Load classifier for the last shard")
-            self.classifier = nn.Linear(self.config.hidden_size, self.config.num_labels) if self.config.num_labels > 0 else nn.Identity()
+            self.classifier = (
+                nn.Linear(self.config.hidden_size, self.config.num_labels)
+                if self.config.num_labels > 0 else nn.Identity()
+            )
             self._load_weights_last(weights)
 
     @torch.no_grad()

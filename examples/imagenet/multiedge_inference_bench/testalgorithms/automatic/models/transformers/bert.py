@@ -42,7 +42,7 @@ class BertLayerShard(ModuleShard):
     def forward(self, data: TransformerShardData) -> TransformerShardData:
         """Compute layer shard."""
         if self.has_layer(0):
-            data = (self.self_attention(data)[0], data)
+            data = (self.self_attention(data, attention_mask=None, past_key_values=None)[0], data)
         if self.has_layer(1):
             data = self.self_output(data[0], data[1])
         if self.has_layer(2):
@@ -104,10 +104,14 @@ class BertModelShard(ModuleShard):
     @torch.no_grad()
     def _load_weights_first(self, weights):
         self.embeddings.position_ids.copy_(torch.from_numpy((weights["embeddings.position_ids"])))
-        self.embeddings.word_embeddings.weight.copy_(torch.from_numpy(weights['embeddings.word_embeddings.weight']))
-        self.embeddings.position_embeddings.weight.copy_(torch.from_numpy(weights['embeddings.position_embeddings.weight']))
-        self.embeddings.token_type_embeddings.weight.copy_(torch.from_numpy(weights['embeddings.token_type_embeddings.weight']))
-        self.embeddings.LayerNorm.weight.copy_(torch.from_numpy(weights['embeddings.LayerNorm.weight']))
+        self.embeddings.word_embeddings.weight.copy_(
+            torch.from_numpy(weights['embeddings.word_embeddings.weight']))
+        self.embeddings.position_embeddings.weight.copy_(
+            torch.from_numpy(weights['embeddings.position_embeddings.weight']))
+        self.embeddings.token_type_embeddings.weight.copy_(
+            torch.from_numpy(weights['embeddings.token_type_embeddings.weight']))
+        self.embeddings.LayerNorm.weight.copy_(
+            torch.from_numpy(weights['embeddings.LayerNorm.weight']))
         self.embeddings.LayerNorm.bias.copy_(torch.from_numpy(weights['embeddings.LayerNorm.bias']))
 
     @torch.no_grad()
@@ -119,31 +123,48 @@ class BertModelShard(ModuleShard):
     def _load_weights_layer(self, weights, layer_id, layer):
         root = f"encoder.layer.{layer_id}."
         if layer.has_layer(0):
-            layer.self_attention.query.weight.copy_(torch.from_numpy(weights[root + "attention.self.query.weight"]))
-            layer.self_attention.key.weight.copy_(torch.from_numpy(weights[root + "attention.self.key.weight"]))
-            layer.self_attention.value.weight.copy_(torch.from_numpy(weights[root + "attention.self.value.weight"]))
-            layer.self_attention.query.bias.copy_(torch.from_numpy(weights[root + "attention.self.query.bias"]))
-            layer.self_attention.key.bias.copy_(torch.from_numpy(weights[root + "attention.self.key.bias"]))
-            layer.self_attention.value.bias.copy_(torch.from_numpy(weights[root + "attention.self.value.bias"]))
+            layer.self_attention.query.weight.copy_(
+                torch.from_numpy(weights[root + "attention.self.query.weight"]))
+            layer.self_attention.key.weight.copy_(
+                torch.from_numpy(weights[root + "attention.self.key.weight"]))
+            layer.self_attention.value.weight.copy_(
+                torch.from_numpy(weights[root + "attention.self.value.weight"]))
+            layer.self_attention.query.bias.copy_(
+                torch.from_numpy(weights[root + "attention.self.query.bias"]))
+            layer.self_attention.key.bias.copy_(
+                torch.from_numpy(weights[root + "attention.self.key.bias"]))
+            layer.self_attention.value.bias.copy_(
+                torch.from_numpy(weights[root + "attention.self.value.bias"]))
         if layer.has_layer(1):
-            layer.self_output.dense.weight.copy_(torch.from_numpy(weights[root + "attention.output.dense.weight"]))
-            layer.self_output.LayerNorm.weight.copy_(torch.from_numpy(weights[root + "attention.output.LayerNorm.weight"]))
-            layer.self_output.dense.bias.copy_(torch.from_numpy(weights[root + "attention.output.dense.bias"]))
-            layer.self_output.LayerNorm.bias.copy_(torch.from_numpy(weights[root + "attention.output.LayerNorm.bias"]))
+            layer.self_output.dense.weight.copy_(
+                torch.from_numpy(weights[root + "attention.output.dense.weight"]))
+            layer.self_output.LayerNorm.weight.copy_(
+                torch.from_numpy(weights[root + "attention.output.LayerNorm.weight"]))
+            layer.self_output.dense.bias.copy_(
+                torch.from_numpy(weights[root + "attention.output.dense.bias"]))
+            layer.self_output.LayerNorm.bias.copy_(
+                torch.from_numpy(weights[root + "attention.output.LayerNorm.bias"]))
         if layer.has_layer(2):
-            layer.intermediate.dense.weight.copy_(torch.from_numpy(weights[root + "intermediate.dense.weight"]))
-            layer.intermediate.dense.bias.copy_(torch.from_numpy(weights[root + "intermediate.dense.bias"]))
+            layer.intermediate.dense.weight.copy_(
+                torch.from_numpy(weights[root + "intermediate.dense.weight"]))
+            layer.intermediate.dense.bias.copy_(
+                torch.from_numpy(weights[root + "intermediate.dense.bias"]))
         if layer.has_layer(3):
             layer.output.dense.weight.copy_(torch.from_numpy(weights[root + "output.dense.weight"]))
             layer.output.dense.bias.copy_(torch.from_numpy(weights[root + "output.dense.bias"]))
-            layer.output.LayerNorm.weight.copy_(torch.from_numpy(weights[root + "output.LayerNorm.weight"]))
-            layer.output.LayerNorm.bias.copy_(torch.from_numpy(weights[root + "output.LayerNorm.bias"]))
+            layer.output.LayerNorm.weight.copy_(
+                torch.from_numpy(weights[root + "output.LayerNorm.weight"]))
+            layer.output.LayerNorm.bias.copy_(
+                torch.from_numpy(weights[root + "output.LayerNorm.bias"]))
 
     @torch.no_grad()
     def forward(self, data: TransformerShardData) -> TransformerShardData:
         """Compute shard layers."""
         if self.shard_config.is_first:
-            data = self.embeddings(data)
+            if isinstance(data, tuple):
+                data = self.embeddings(input_ids=data[0], token_type_ids=data[1])
+            else:
+                data = self.embeddings(input_ids=data)
         for layer in self.layers:
             data = layer(data)
         if self.shard_config.is_last:
@@ -157,7 +178,7 @@ class BertModelShard(ModuleShard):
         state_dict = model.state_dict()
         weights = {}
         for key, val in state_dict.items():
-            weights[key] = val
+            weights[key] = val.detach().cpu().numpy()
         np.savez(model_file, **weights)
 
 
@@ -215,5 +236,5 @@ class BertShardForSequenceClassification(ModuleShard):
         state_dict = model.state_dict()
         weights = {}
         for key, val in state_dict.items():
-            weights[key] = val
+            weights[key] = val.detach().cpu().numpy()
         np.savez(model_file, **weights)
