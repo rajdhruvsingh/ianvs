@@ -19,6 +19,7 @@ import keras
 from keras import layers, Sequential
 
 
+@keras.saving.register_keras_serializable()
 class Conv2D(keras.layers.Layer):
     def __init__(
         self,
@@ -75,6 +76,7 @@ class Conv2D(keras.layers.Layer):
 # Input--conv2D--BN--ReLU--conv2D--BN--ReLU--Output
 #      \                              /
 #       ------------------------------
+@keras.saving.register_keras_serializable()
 class BasicBlock(keras.Model):
     def __init__(self, is_combined: bool, filter_num, stride=1):
         super(BasicBlock, self).__init__()
@@ -118,6 +120,7 @@ class BasicBlock(keras.Model):
         return output
 
 
+@keras.saving.register_keras_serializable()
 class ResNet(keras.Model):
     def __init__(self, is_combined: bool, layer_dims):  # [2, 2, 2, 2]
         super(ResNet, self).__init__()
@@ -139,6 +142,9 @@ class ResNet(keras.Model):
 
         # output: [b, 512, h, w],
         self.avgpool = layers.GlobalAveragePooling2D()
+
+        # Force-build all sublayers so copy.deepcopy works under Keras 3
+        self(tf.zeros([1, 32, 32, 3]))
 
     def call(self, inputs, training=None):
         x = self.stem(inputs, training=training)
@@ -225,6 +231,7 @@ def resnet34(is_combined=False) -> ResNet:
     return ResNet(is_combined, [3, 4, 6, 3])
 
 
+@keras.saving.register_keras_serializable()
 class LeNet5(keras.Model):
     def __init__(self):  # [2, 2, 2, 2]
         super(LeNet5, self).__init__()
