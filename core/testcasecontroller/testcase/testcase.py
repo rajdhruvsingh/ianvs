@@ -24,13 +24,13 @@ from core.testcasecontroller.metrics import get_metric_func
 class TestCase:
     """
     Test Case:
-    Consists of a test environment and a test algorithm
+    Consists of a test environment and a test algorithm.
 
     Parameters
     ----------
     test_env : instance
-        The test environment of  benchmarking,
-        including dataset, Post-processing algorithms like metric computation.
+        The test environment of benchmarking,
+        including dataset and post-processing algorithms like metric computation.
     algorithm : instance
         Typical distributed-synergy AI algorithm paradigm.
     """
@@ -43,24 +43,27 @@ class TestCase:
         self.output_dir = None
 
     def _get_output_dir(self, workspace):
-        output_dir = os.path.join(workspace, self.algorithm.name)
-        flag = True
-        while flag:
-            output_dir = os.path.join(workspace, self.algorithm.name, str(self.id))
-            if not os.path.exists(output_dir):
-                flag = False
+        """
+        Return a unique output directory for this test case and create it.
+
+        Uses uuid1() (already unique per test case) with os.makedirs(exist_ok=True)
+        to avoid the race condition present in the original os.path.exists() loop,
+        where two parallel threads could both pass the existence check before either
+        created the directory.
+        """
+        output_dir = os.path.join(workspace, self.algorithm.name, str(self.id))
+        os.makedirs(output_dir, exist_ok=True)
         return output_dir
 
     def run(self, workspace):
         """
-        Run the test case
+        Run the test case.
 
         Returns
         -------
-        test result: dict
+        test result : dict
             e.g.: {"f1_score": 0.89}
         """
-
         try:
             dataset = self.test_env.dataset
             test_env_config = {}
@@ -77,26 +80,26 @@ class TestCase:
         except Exception as err:
             paradigm_type = self.algorithm.paradigm_type
             raise RuntimeError(
-                f"(paradigm={paradigm_type}) pipeline runs failed, error: {err}") from err
+                f"(paradigm={paradigm_type}) pipeline runs failed, error: {err}"
+            ) from err
         return test_result
 
     def compute_metrics(self, paradigm_result, dataset, **kwargs):
         """
-        Compute metrics of paradigm result
+        Compute metrics of paradigm result.
 
         Parameters
         ----------
-        paradigm_result: numpy.ndarray
-        dataset: instance
-        kwargs: dict
-            information needed to compute system metrics.
+        paradigm_result : numpy.ndarray
+        dataset : instance
+        kwargs : dict
+            Information needed to compute system metrics.
 
         Returns
         -------
         dict
             e.g.: {"f1_score": 0.89}
         """
-
         metric_funcs = {}
         for metric_dict in self.test_env.metrics:
             metric_name, metric_func = get_metric_func(metric_dict=metric_dict)
@@ -104,9 +107,9 @@ class TestCase:
                 metric_funcs.update({metric_name: metric_func})
 
         test_dataset_file = dataset.test_url
-        test_dataset = dataset.load_data(test_dataset_file,
-                                         data_type="eval overall",
-                                         label=dataset.label)
+        test_dataset = dataset.load_data(
+            test_dataset_file, data_type="eval overall", label=dataset.label
+        )
 
         metric_res = {}
         system_metric_types = [e.value for e in SystemMetricType.__members__.values()]

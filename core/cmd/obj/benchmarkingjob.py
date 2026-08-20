@@ -16,6 +16,7 @@
 """BenchmarkingJob"""
 
 import os
+from typing import Optional
 
 from core.common import utils
 from core.common.constant import TestObjectType
@@ -26,18 +27,17 @@ from core.testcasecontroller.simulation_system_admin import build_simulation_env
 from core.testcasecontroller.testcasecontroller import TestCaseController
 
 
-# pylint: disable=too-few-public-methods
+# pylint: disable=too-few-public-methods,too-many-instance-attributes
 class BenchmarkingJob:
     """
     BenchmarkingJob:
-        providing a end-to-end benchmarking job.
+        Providing an end-to-end benchmarking job.
 
     Parameters
     ----------
-    config: dict
-        config of a end-to-end benchmarking job,
+    config : dict
+        Config of an end-to-end benchmarking job,
         includes: test env, algorithms, rank setting, etc.
-
     """
 
     def __init__(self, config):
@@ -47,39 +47,49 @@ class BenchmarkingJob:
         self.rank = None
         self.test_env = None
         self.simulation = None
+        self.parallel: bool = False
+        self.max_workers: Optional[int] = None
         self.testcase_controller = TestCaseController()
         self._parse_config(config)
 
     def _check_fields(self):
         if not self.name and not isinstance(self.name, str):
-            raise ValueError(f"benchmarkingjob's name({self.name}) must be provided"
-                             f" and be string type.")
+            raise ValueError(
+                f"benchmarkingjob's name({self.name}) must be provided"
+                f" and be string type."
+            )
 
         if not isinstance(self.workspace, str):
-            raise ValueError(f"benchmarkingjob's workspace({self.workspace}) must be string type.")
+            raise ValueError(
+                f"benchmarkingjob's workspace({self.workspace}) must be string type."
+            )
 
         if not self.test_object and not isinstance(self.test_object, dict):
-            raise ValueError(f"benchmarkingjob's test_object({self.test_object})"
-                             f" must be dict type.")
+            raise ValueError(
+                f"benchmarkingjob's test_object({self.test_object})"
+                f" must be dict type."
+            )
 
         test_object_types = [e.value for e in TestObjectType.__members__.values()]
         test_object_type = self.test_object.get("type")
         if test_object_type not in test_object_types:
             raise ValueError(
                 f"benchmarkingjob' test_object doesn't support the type({test_object_type}), "
-                f"the following test object types can be selected: {test_object_types}.")
+                f"the following test object types can be selected: {test_object_types}."
+            )
 
         if not self.test_object.get(test_object_type):
-            raise ValueError(f"benchmarkingjob' test_object doesn't find"
-                             f" the field({test_object_type}).")
+            raise ValueError(
+                f"benchmarkingjob' test_object doesn't find the field({test_object_type})."
+            )
 
     def run(self):
         """
-        run a end-to-end benchmarking job,
-        includes prepare test env,
-                 run all test cases,
-                 save results of all test cases,
-                 plot the results according to the visualization config of rank.
+        Run an end-to-end benchmarking job:
+        - prepare test env
+        - run all test cases (sequentially or in parallel)
+        - save results of all test cases
+        - plot results according to the rank visualization config
         """
         self.workspace = os.path.join(self.workspace, self.name)
 
@@ -88,10 +98,16 @@ class BenchmarkingJob:
 
         self.test_env.prepare()
 
-        self.testcase_controller.build_testcases(test_env=self.test_env,
-                                                 test_object=self.test_object)
+        self.testcase_controller.build_testcases(
+            test_env=self.test_env,
+            test_object=self.test_object
+        )
 
-        succeed_testcases, test_results = self.testcase_controller.run_testcases(self.workspace)
+        succeed_testcases, test_results = self.testcase_controller.run_testcases(
+            self.workspace,
+            parallel=self.parallel,
+            max_workers=self.max_workers
+        )
 
         if test_results:
             self.rank.save(succeed_testcases, test_results, output_dir=self.workspace)
@@ -114,14 +130,17 @@ class BenchmarkingJob:
 
     def _parse_testenv_config(self, config_file):
         if not utils.is_local_file(config_file):
-            raise RuntimeError(f"not found testenv config file({config_file}) in local")
-
+            raise RuntimeError(
+                f"not found testenv config file({config_file}) in local"
+            )
         try:
             config = utils.yaml2dict(config_file)
             self.test_env = TestEnv(config)
         except Exception as err:
-            raise RuntimeError(f"testenv config file({config_file}) is not supported, "
-                            f"error: {err}") from err
+            raise RuntimeError(
+                f"testenv config file({config_file}) is not supported, "
+                f"error: {err}"
+            ) from err
 
     def _parse_rank_config(self, config):
         self.rank = Rank(config)
