@@ -138,8 +138,23 @@ class TestCaseController:
         failed_testcases = []
 
         # Deep copy each test case so parallel threads do not share mutable
-        # test_env or dataset state.
-        parallel_testcases = [copy.deepcopy(tc) for tc in self.test_cases]
+        # test_env or dataset state. If a test_env or algorithm carries a
+        # non-deepcopyable resource (e.g. an open file handle, socket, or
+        # GPU/session object attached by a custom paradigm), fail early with
+        # a clear, actionable error instead of an opaque TypeError/RuntimeError
+        # raised from deep inside copy.deepcopy().
+        try:
+            parallel_testcases = [copy.deepcopy(tc) for tc in self.test_cases]
+        except Exception as err:
+            raise RuntimeError(
+                "Failed to prepare test cases for parallel execution: "
+                f"{type(err).__name__}: {err}. This usually means a test_env "
+                "or algorithm object holds a resource that cannot be deep-"
+                "copied (e.g. an open file, socket, or GPU/session handle). "
+                "Set parallel=False to run sequentially, or ensure custom "
+                "paradigms/test_env objects only hold deepcopy-safe state "
+                "(config values, paths) rather than live resources."
+            ) from err
 
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             future_to_testcase = {

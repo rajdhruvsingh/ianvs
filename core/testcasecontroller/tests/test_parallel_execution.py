@@ -308,5 +308,139 @@ class TestDeepCopyIsolation(unittest.TestCase):
         self.assertEqual(ctrl.test_cases[0].id, original_id)
 
 
+# ---------------------------------------------------------------------------
+# 8. Real (non-mocked) concurrent execution against a shared test_env
+# ---------------------------------------------------------------------------
+ 
+class _FakeAlgorithm:  # pylint: disable=too-few-public-methods
+    """Minimal stand-in for core.testcasecontroller.algorithm.Algorithm."""
+ 
+    def __init__(self, name):
+        self.name = name
+        self.paradigm_type = "fake"
+ 
+ 
+class _SharedTestEnv:  # pylint: disable=too-few-public-methods
+    """
+    A minimal, real (non-Mock) test_env-like object with mutable state,
+    modeling how a real TestEnv/Dataset can be mutated during paradigm
+    execution (e.g. dataset.load_data() caching, counters, etc.).
+    """
+ 
+    def __init__(self):
+        self.dataset = {"load_count": 0}
+        self.metrics = []
+ 
+ 
+class _RealTestCase(TestCase):
+    """
+    Uses the REAL TestCase._get_output_dir() (not mocked) and simulates a
+    paradigm that mutates shared test_env state during .run(), so we can
+    verify under real threads (not MagicMock) that:
+      1. output dirs never collide,
+      2. the *original* shared test_env passed to the controller is never
+         mutated by a parallel run (because each thread operates on its own
+         deep copy).
+    """
+ 
+    def __init__(self, test_env, algorithm, sleep=0.02):
+        super().__init__(test_env, algorithm)
+        self._sleep = sleep
+ 
+    def run(self, workspace):
+        output_dir = self._get_output_dir(workspace)
+        # Simulate real work + a mutation of "this thread's" test_env,
+        # like dataset.load_data() populating a cache.
+        time.sleep(self._sleep)
+        self.test_env.dataset["load_count"] += 1
+        return {"acc": 1.0, "output_dir": output_dir}
+ 
+ 
+class TestRealConcurrencyIsolation(unittest.TestCase):
+    """
+    Exercises real threading + the real TestCase/_get_output_dir path,
+    rather than MagicMock, to directly validate the race-condition fix
+    that motivated this PR (see Gemini Code Assist review on #532).
+    """
+ 
+    def test_shared_test_env_not_mutated_by_parallel_run(self):
+        """
+        The test_env object owned by the *original* (un-copied) test cases
+        must remain untouched after a parallel run, proving each thread
+        operated on its own deep copy rather than shared state.
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            shared_env = _SharedTestEnv()
+            testcases = [
+                _RealTestCase(shared_env, _FakeAlgorithm("algoA"))
+                for _ in range(8)
+            ]
+            ctrl = _make_controller(*testcases)
+ 
+            succeed_testcases, results = ctrl.run_testcases(
+                tmpdir, parallel=True, max_workers=4
+            )
+ 
+            self.assertEqual(len(succeed_testcases), 8)
+            self.assertEqual(len(results), 8)
+            # The original shared_env, referenced by the *un-copied*
+            # testcases list the controller was constructed with, must
+            # never have been mutated.
+            self.assertEqual(shared_env.dataset["load_count"], 0)
+ 
+    def test_concurrent_output_dirs_unique_via_real_run_testcases(self):
+        """
+        Running many real test cases sharing one algorithm name through the
+        actual run_testcases(parallel=True) entrypoint (not a raw thread
+        pool against _get_output_dir directly) must not collide on output
+        directories.
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            shared_env = _SharedTestEnv()
+            testcases = [
+                _RealTestCase(shared_env, _FakeAlgorithm("algoA"), sleep=0.01)
+                for _ in range(15)
+            ]
+            ctrl = _make_controller(*testcases)
+ 
+            _, results = ctrl.run_testcases(tmpdir, parallel=True, max_workers=8)
+ 
+            output_dirs = [res["output_dir"] for res, _ in results.values()]
+            self.assertEqual(
+                len(output_dirs), len(set(output_dirs)),
+                "Duplicate output directories detected via real parallel run"
+            )
+            for directory in output_dirs:
+                self.assertTrue(os.path.isdir(directory))
+ 
+ 
+# ---------------------------------------------------------------------------
+# 9. Deep copy failure surfaces a clear, actionable error
+# ---------------------------------------------------------------------------
+ 
+class _UncopyableTestEnv:  # pylint: disable=too-few-public-methods
+    """A test_env whose deepcopy always fails, simulating a live resource
+    (e.g. a socket or open file) attached by a custom paradigm."""
+ 
+    def __deepcopy__(self, memo):
+        raise TypeError("cannot deepcopy a live resource")
+ 
+ 
+class TestDeepCopyFailureIsClear(unittest.TestCase):
+    """Tests that a non-deepcopyable test_env fails loudly and helpfully."""
+ 
+    def test_uncopyable_test_env_raises_clear_runtime_error(self):
+        """A RuntimeError with actionable guidance is raised, not a raw
+        TypeError from deep inside copy.deepcopy()."""
+        tc = _make_mock_testcase()
+        tc.test_env = _UncopyableTestEnv()
+        # copy.deepcopy(tc) will recurse into tc.test_env and raise there.
+        ctrl = _make_controller(tc)
+        with self.assertRaises(RuntimeError) as ctx:
+            ctrl.run_testcases("/tmp/ws", parallel=True)
+        message = str(ctx.exception)
+        self.assertIn("parallel=False", message)
+        self.assertIn("deep-copied", message)
+
 if __name__ == "__main__":
     unittest.main()
